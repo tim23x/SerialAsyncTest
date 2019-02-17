@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -28,6 +30,8 @@ namespace Interface
         public PlotViewModel plotRight = new PlotViewModel("Right");
         SerialPort leftPort, rightPort;
         Stopwatch xTime;
+        ConcurrentQueue<String> lData, rData;
+        CancellationTokenSource cts;
 
         public MainWindow()
         {
@@ -36,37 +40,24 @@ namespace Interface
             pltLeft.DataContext = plotLeft;
             plotLeft.AddDataPointToSeries(0, new DataPoint(0, 1));
             pltRight.DataContext = plotRight;
+            lData = new ConcurrentQueue<string>();
+            rData = new ConcurrentQueue<string>();
+            cts = new CancellationTokenSource();
             xTime = new Stopwatch();
             xTime.Start();
-            //leftPort=SerialConnect("COM45");
-            leftPort = new SerialPort();
-            leftPort.PortName = "COM45";
-            leftPort.BaudRate = 115200;
-            leftPort.Parity = Parity.None;
-            leftPort.StopBits = StopBits.One;
-            leftPort.DataBits = 8;
-            leftPort.Handshake = Handshake.None;
-            leftPort.RtsEnable = true;
-            leftPort.Open();
+            leftPort=SerialConnect("COM45");
             if(leftPort.BytesToRead > 0)
             {
                 string received = leftPort.ReadExisting();
             }
-            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler);
-            
-            rightPort = new SerialPort();
-            rightPort.PortName = "COM47";
-            rightPort.BaudRate = 115200;
-            rightPort.Parity = Parity.None;
-            rightPort.StopBits = StopBits.One;
-            rightPort.DataBits = 8;
-            rightPort.Handshake = Handshake.None;
-            rightPort.RtsEnable = true;
-            rightPort.Open();
+            Task.Factory.StartNew(() => AddLeftData(lData, cts.Token));
+            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
+            rightPort = SerialConnect("COM47");
             if (rightPort.BytesToRead > 0)
             {
                 string received = rightPort.ReadExisting();
             }
+            Task.Factory.StartNew(() => AddRightData(rData, cts.Token));
             rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
         }
 
@@ -74,16 +65,32 @@ namespace Interface
         {
             var s = sender as SerialPort;
             string received = s.ReadExisting();
-            String[] data = received.Split('#');
-            foreach(string point in data)
+            lData.Enqueue(received);
+        }
+
+        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token)
+        {
+            string local;
+            while (true)
             {
-                try
+                //token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                    break;
+                while (qData.TryDequeue(out local))
                 {
-                    DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
-                    plotLeft.AddDataPointToSeries(0, dp);
+                    String[] data = local.Split('#');
+                    foreach (string point in data)
+                    {
+                        try
+                        {
+                            DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
+                            plotLeft.AddDataPointToSeries(0, dp);
+                        }
+                        catch (Exception ex)
+                        { }
+                    }
                 }
-                catch(Exception ex)
-                { }
+                Thread.Sleep(1);
             }
         }
 
@@ -91,16 +98,32 @@ namespace Interface
         {
             var s = sender as SerialPort;
             string received = s.ReadExisting();
-            String[] data = received.Split('#');
-            foreach (string point in data)
+            rData.Enqueue(received);
+        }
+
+        public void AddRightData(ConcurrentQueue<string> qData, CancellationToken token)
+        {
+            string local;
+            while (true)
             {
-                try
+                //token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                    break;
+                while (qData.TryDequeue(out local))
                 {
-                    DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
-                    plotRight.AddDataPointToSeries(0, dp);
+                    String[] data = local.Split('#');
+                    foreach (string point in data)
+                    {
+                        try
+                        {
+                            DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
+                            plotRight.AddDataPointToSeries(0, dp);
+                        }
+                        catch (Exception ex)
+                        { }
+                    }
                 }
-                catch (Exception ex)
-                { }
+                Thread.Sleep(1);
             }
         }
 
@@ -109,6 +132,11 @@ namespace Interface
             SerialPort port = new SerialPort();
             port.PortName = name;
             port.BaudRate = 115200;
+            port.Parity = Parity.None;
+            port.StopBits = StopBits.One;
+            port.DataBits = 8;
+            port.Handshake = Handshake.None;
+            port.RtsEnable = true;
             port.Open();
             return port;
         }
