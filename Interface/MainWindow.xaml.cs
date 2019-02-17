@@ -45,26 +45,8 @@ namespace Interface
             cts = new CancellationTokenSource();
             xTime = new Stopwatch();
             xTime.Start();
-            leftPort=SerialConnect("COM45");
-            var sw = new Stopwatch();
-            sw.Start();
-            if(leftPort.BytesToRead > 0)
-            {
-                Debug.WriteLine("leftPort.ReadExisting Elapsed: {0}", sw.Elapsed);
-                string received = leftPort.ReadExisting();
-                Debug.WriteLine("leftPort Elapsed: {0}, received: {1}", sw.Elapsed, received);
-            }
-            Task.Factory.StartNew(() => AddLeftData(lData, cts.Token));
-            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
-            rightPort = SerialConnect("COM47");
-            if (rightPort.BytesToRead > 0)
-            {
-                Debug.WriteLine("rightPort.ReadExisting Elapsed: {0}", sw.Elapsed);
-                string received = rightPort.ReadExisting();
-                Debug.WriteLine("rightPort Elapsed: {0}, received: {1}", sw.Elapsed, received);
-            }
-            Task.Factory.StartNew(() => AddRightData(rData, cts.Token));
-            rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
+            Task.Factory.StartNew(() => AddLeftData(lData, cts.Token, leftPort));
+            Task.Factory.StartNew(() => AddRightData(rData, cts.Token, rightPort));
         }
 
         private void LeftDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
@@ -74,8 +56,17 @@ namespace Interface
             lData.Enqueue(received);
         }
 
-        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token)
+        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort leftPort)
         {
+            leftPort=SerialConnect("COM45");
+            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
+            if (leftPort.BytesToRead > 0)
+            {
+                string received = leftPort.ReadExisting();
+
+                qData.Enqueue(received);
+            }
+
             string local;
             while (true)
             {
@@ -107,8 +98,16 @@ namespace Interface
             rData.Enqueue(received);
         }
 
-        public void AddRightData(ConcurrentQueue<string> qData, CancellationToken token)
+        public void AddRightData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort rightPort)
         {
+            rightPort = SerialConnect("COM47");
+            rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
+            if (rightPort.BytesToRead > 0)
+            {
+                string received = rightPort.ReadExisting();
+
+                qData.Enqueue(received);
+            }
             string local;
             while (true)
             {
