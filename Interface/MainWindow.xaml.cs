@@ -28,7 +28,6 @@ namespace Interface
     {
         public PlotViewModel plotLeft = new PlotViewModel("Left");
         public PlotViewModel plotRight = new PlotViewModel("Right");
-        SerialPort leftPort, rightPort;
         Stopwatch xTime;
         ConcurrentQueue<String> lData, rData;
         CancellationTokenSource cts;
@@ -38,35 +37,64 @@ namespace Interface
             InitializeComponent();
             this.DataContext = this;
             pltLeft.DataContext = plotLeft;
-            plotLeft.AddDataPointToSeries(0, new DataPoint(0, 1));
             pltRight.DataContext = plotRight;
             lData = new ConcurrentQueue<string>();
             rData = new ConcurrentQueue<string>();
             cts = new CancellationTokenSource();
             xTime = new Stopwatch();
             xTime.Start();
-            Task.Factory.StartNew(() => AddLeftData(lData, cts.Token, leftPort));
-            Task.Factory.StartNew(() => AddRightData(rData, cts.Token, rightPort));
+            Task.Factory.StartNew(() => GetData(lData, cts.Token, "COM28"));
+            Task.Factory.StartNew(() => AddData(lData, cts.Token, plotLeft));
+            Task.Factory.StartNew(() => GetData(rData, cts.Token, "COM9"));
+            Task.Factory.StartNew(() => AddData(rData, cts.Token, plotRight));
         }
 
-        private void LeftDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
+        public void GetData(ConcurrentQueue<string> qData, CancellationToken token, String portName)
         {
-            var s = sender as SerialPort;
-            string received = s.ReadExisting();
-            lData.Enqueue(received);
-        }
-
-        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort leftPort)
-        {
-            leftPort=SerialConnect("COM45");
-            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
-            if (leftPort.BytesToRead > 0)
+            SerialPort port = SerialConnect(portName);
+            //leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
+            while (true)
             {
-                string received = leftPort.ReadExisting();
-
-                qData.Enqueue(received);
+                //token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                    break;
+                if (port.BytesToRead > 0)
+                {
+                    //string received = port.ReadExisting();
+                    string received = port.ReadTo("#");
+                    qData.Enqueue(received);
+                }
             }
+        }
 
+        public void AddData(ConcurrentQueue<string> qData, CancellationToken token, PlotViewModel plot)
+        {
+            string local;
+            while (true)
+            {
+                //token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                    break;
+                while (qData.TryDequeue(out local))
+                {
+                    String[] data = local.Split('#');
+                    foreach (string point in data)
+                    {
+                        try
+                        {
+                            DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
+                            plot.AddDataPointToSeries(0, dp);
+                        }
+                        catch (Exception ex)
+                        { }
+                    }
+                }
+                Thread.Sleep(1);
+            }
+        }
+        /*
+        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token)
+        {
             string local;
             while (true)
             {
@@ -91,23 +119,21 @@ namespace Interface
             }
         }
 
-        private void RightDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
-        {
-            var s = sender as SerialPort;
-            string received = s.ReadExisting();
-            rData.Enqueue(received);
-        }
 
-        public void AddRightData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort rightPort)
+        public void GetRightData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort rightPort)
         {
-            rightPort = SerialConnect("COM47");
-            rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
+            rightPort = SerialConnect("COM9");
+            //rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
             if (rightPort.BytesToRead > 0)
             {
                 string received = rightPort.ReadExisting();
 
                 qData.Enqueue(received);
             }
+        }
+
+        private void AddRightData(ConcurrentQueue<string> qData, CancellationToken token)
+        {
             string local;
             while (true)
             {
@@ -132,6 +158,40 @@ namespace Interface
             }
         }
 
+        public void GetLeftData(ConcurrentQueue<string> qData, CancellationToken token, String portName)
+        {
+            SerialPort port = SerialConnect(portName);
+            //leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
+            while (true)
+            {
+                //token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                    break;
+
+                if (port.BytesToRead > 0)
+                {
+                    string received = port.ReadExisting();
+                    qData.Enqueue(received);
+                }
+            }
+        }
+
+        private void LeftDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
+        {
+            var s = sender as SerialPort;
+            string received = s.ReadExisting();
+            lData.Enqueue(received);
+        }
+
+        private void RightDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
+        {
+            var s = sender as SerialPort;
+            string received = s.ReadExisting();
+            rData.Enqueue(received);
+        }
+
+
+    */
         private SerialPort SerialConnect(String name)
         {
             SerialPort port = new SerialPort();

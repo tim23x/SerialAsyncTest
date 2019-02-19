@@ -15,7 +15,7 @@ void loop()
 {
 	for (int i = 0; i < 32000; i++)
 	{
-		Serial << i << '#';
+		SerialUSB << i << '#';
+		delay(1);
 	}
-	delay(20);
 }
