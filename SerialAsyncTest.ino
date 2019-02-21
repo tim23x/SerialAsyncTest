@@ -16,6 +16,5 @@ void loop()
 	for (int i = 0; i < 32000; i++)
 	{
 		SerialUSB << i << '#';
-		delay(1);
 	}
 }
