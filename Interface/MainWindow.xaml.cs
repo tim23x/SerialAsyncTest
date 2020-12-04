@@ -1,20 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using System.IO;
 using System.IO.Ports;
 using System.Diagnostics;
 using OxyPlot;
@@ -28,110 +16,106 @@ namespace Interface
     {
         public PlotViewModel plotLeft = new PlotViewModel("Left");
         public PlotViewModel plotRight = new PlotViewModel("Right");
-        SerialPort leftPort, rightPort;
         Stopwatch xTime;
         ConcurrentQueue<String> lData, rData;
         CancellationTokenSource cts;
+        SerialPort aliPort, rightPort;
+        private char[] MFCLetters = new char[] { 'A', 'B', 'E' };
+        private int MFCCounter = 0;
 
         public MainWindow()
         {
             InitializeComponent();
             this.DataContext = this;
             pltLeft.DataContext = plotLeft;
-            plotLeft.AddDataPointToSeries(0, new DataPoint(0, 1));
             pltRight.DataContext = plotRight;
             lData = new ConcurrentQueue<string>();
             rData = new ConcurrentQueue<string>();
             cts = new CancellationTokenSource();
             xTime = new Stopwatch();
             xTime.Start();
-            leftPort=SerialConnect("COM45");
-            if(leftPort.BytesToRead > 0)
-            {
-                string received = leftPort.ReadExisting();
-            }
-            Task.Factory.StartNew(() => AddLeftData(lData, cts.Token));
-            leftPort.DataReceived += new SerialDataReceivedEventHandler(LeftDataReceivedHandler); 
-            rightPort = SerialConnect("COM47");
-            if (rightPort.BytesToRead > 0)
-            {
-                string received = rightPort.ReadExisting();
-            }
-            Task.Factory.StartNew(() => AddRightData(rData, cts.Token));
-            rightPort.DataReceived += new SerialDataReceivedEventHandler(RightDataReceivedHandler);
+            //Task.Factory.StartNew(() => GetData(lData, cts.Token, "COM28"));
+            aliPort = SerialConnect("COM43", 19200);
+            //rightPort = SerialConnect("COM9", 115200);
+            Task.Factory.StartNew(() => GetAlicatData(lData, cts.Token, aliPort));
+            Task.Factory.StartNew(() => AlicatPoll(cts.Token));
+            Task.Factory.StartNew(() => AddData(lData, cts.Token, plotLeft));
+            //Task.Factory.StartNew(() => GetData(rData, cts.Token, "COM9"));
+            //Task.Factory.StartNew(() => GetData(rData, cts.Token, rightPort));
+            //Task.Factory.StartNew(() => AddData(rData, cts.Token, plotRight));
         }
 
-        private void LeftDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
+        public void GetData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort port)
         {
-            var s = sender as SerialPort;
-            string received = s.ReadExisting();
-            lData.Enqueue(received);
+            while (true)
+            {
+                if (token.IsCancellationRequested)
+                    break;
+                if (port.BytesToRead > 0)
+                {
+                    string received = port.ReadTo("#");
+                    qData.Enqueue(received);
+                }
+            }
         }
 
-        public void AddLeftData(ConcurrentQueue<string> qData, CancellationToken token)
+        public void GetAlicatData(ConcurrentQueue<string> qData, CancellationToken token, SerialPort port)
+        {
+            while (true)
+            {
+                if (token.IsCancellationRequested)
+                    break;
+                if (port.BytesToRead > 0)
+                {
+                    string received = port.ReadTo("\r");
+                    qData.Enqueue(received);
+                }
+            }
+        }
+
+        public void AddData(ConcurrentQueue<string> qData, CancellationToken token, PlotViewModel plot)
         {
             string local;
             while (true)
             {
-                //token.ThrowIfCancellationRequested();
                 if (token.IsCancellationRequested)
                     break;
                 while (qData.TryDequeue(out local))
                 {
-                    String[] data = local.Split('#');
-                    foreach (string point in data)
+                    String[] data = local.Split(' ');
+                    string point = data[1];
+                    try
                     {
-                        try
-                        {
-                            DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
-                            plotLeft.AddDataPointToSeries(0, dp);
-                        }
-                        catch (Exception ex)
-                        { }
+                        DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
+                        plot.AddDataPointToSeries(0, dp);
+                    }
+                    catch (Exception ex)
+                    {
                     }
                 }
-                Thread.Sleep(1);
             }
         }
 
-        private void RightDataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
+        public void AlicatPoll(CancellationToken token)
         {
-            var s = sender as SerialPort;
-            string received = s.ReadExisting();
-            rData.Enqueue(received);
-        }
-
-        public void AddRightData(ConcurrentQueue<string> qData, CancellationToken token)
-        {
-            string local;
             while (true)
             {
-                //token.ThrowIfCancellationRequested();
                 if (token.IsCancellationRequested)
                     break;
-                while (qData.TryDequeue(out local))
-                {
-                    String[] data = local.Split('#');
-                    foreach (string point in data)
-                    {
-                        try
-                        {
-                            DataPoint dp = new DataPoint(xTime.ElapsedMilliseconds, Convert.ToDouble(point));
-                            plotRight.AddDataPointToSeries(0, dp);
-                        }
-                        catch (Exception ex)
-                        { }
-                    }
-                }
-                Thread.Sleep(1);
+                if (MFCCounter > 2)
+                    MFCCounter = 0;
+                String aliCommand = MFCLetters[MFCCounter].ToString() + "\r";
+                aliPort.Write(aliCommand);
+                Thread.Sleep(50);
             }
         }
 
-        private SerialPort SerialConnect(String name)
+
+        private SerialPort SerialConnect(String name, Int32 baud)
         {
             SerialPort port = new SerialPort();
             port.PortName = name;
-            port.BaudRate = 115200;
+            port.BaudRate = baud;
             port.Parity = Parity.None;
             port.StopBits = StopBits.One;
             port.DataBits = 8;
